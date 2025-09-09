@@ -3,6 +3,8 @@ package tf5
 import (
 	"context"
 	"fmt"
+	"iter"
+	"slices"
 
 	"github.com/apparentlymart/opentofu-providers/tofuprovider/grpc/tfplugin5"
 	"github.com/apparentlymart/opentofu-providers/tofuprovider/internal/common"
@@ -51,7 +53,17 @@ func (p *Provider) ApplyManagedResourceChange(ctx context.Context, req *provider
 
 // ImportManagedResourceState implements tofuprovider.GRPCPluginProvider.
 func (p *Provider) ImportManagedResourceState(ctx context.Context, req *providerops.ImportManagedResourceStateRequest) (providerops.ImportManagedResourceStateResponse, error) {
-	panic("unimplemented")
+	protoReq := &tfplugin5.ImportResourceState_Request{
+		TypeName:           req.ResourceType,
+		Id:                 req.ID,
+		ClientCapabilities: prepareClientCapabilities(req.ClientCapabilities),
+	}
+
+	protoResp, err := p.client.ImportResourceState(ctx, protoReq)
+	if err != nil {
+		return nil, err
+	}
+	return importManagedResourceStateResponse{proto: protoResp}, nil
 }
 
 // MoveManagedResourceState implements tofuprovider.GRPCPluginProvider.
@@ -252,4 +264,44 @@ func (r readManagedResourceResponse) Deferred() providerops.Deferred {
 		return nil
 	}
 	return deferred{proto: r.proto.Deferred}
+}
+
+type importManagedResourceStateResponse struct {
+	proto *tfplugin5.ImportResourceState_Response
+	common.SealedImpl
+}
+
+// Diagnostics implements providerops.ImportManagedResourceStateResponse.
+func (i importManagedResourceStateResponse) Diagnostics() providerops.Diagnostics {
+	return diagnostics{proto: i.proto.Diagnostics}
+}
+
+// ImportedResources implements providerops.ImportManagedResourceStateResponse.
+func (i importManagedResourceStateResponse) ImportedResources() iter.Seq[providerops.ImportedManagedResource] {
+	return common.MapSeq(slices.Values(i.proto.ImportedResources), func(protoRes *tfplugin5.ImportResourceState_ImportedResource) providerops.ImportedManagedResource {
+		return importedManagedResource{proto: protoRes}
+	})
+}
+
+type importedManagedResource struct {
+	proto *tfplugin5.ImportResourceState_ImportedResource
+	common.SealedImpl
+}
+
+// ResourceType implements providerops.ImportedManagedResource.
+func (i importedManagedResource) ResourceType() string {
+	return i.proto.TypeName
+}
+
+// State implements providerops.ImportedManagedResource.
+func (i importedManagedResource) State() providerschema.DynamicValueOut {
+	if i.proto.State == nil {
+		return nil
+	}
+	return dynamicValue{proto: i.proto.State}
+}
+
+// ProviderInternal implements providerops.ImportedManagedResource.
+func (i importedManagedResource) ProviderInternal() []byte {
+	return i.proto.Private
 }
