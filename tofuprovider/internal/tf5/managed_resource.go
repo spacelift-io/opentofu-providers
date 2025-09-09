@@ -12,7 +12,41 @@ import (
 
 // ApplyManagedResourceChange implements tofuprovider.GRPCPluginProvider.
 func (p *Provider) ApplyManagedResourceChange(ctx context.Context, req *providerops.ApplyManagedResourceChangeRequest) (providerops.ApplyManagedResourceChangeResponse, error) {
-	panic("unimplemented")
+	priorState, err := makeDynamicValueMsgpack(req.PriorState)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PriorState value: %w", err)
+	}
+	plannedNewState, err := makeDynamicValueMsgpack(req.PlannedNewState)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PlannedNewState value: %w", err)
+	}
+	config, err := makeDynamicValueMsgpack(req.Config)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Config value: %w", err)
+	}
+
+	var providerMeta *tfplugin5.DynamicValue
+	if req.ProviderMeta != providerschema.NoDynamicValue {
+		providerMeta, err = makeDynamicValueMsgpack(req.ProviderMeta)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ProviderMeta value: %w", err)
+		}
+	}
+
+	protoReq := &tfplugin5.ApplyResourceChange_Request{
+		TypeName:       req.ResourceType,
+		PriorState:     priorState,
+		PlannedState:   plannedNewState,
+		Config:         config,
+		PlannedPrivate: req.PlannedProviderInternal,
+		ProviderMeta:   providerMeta,
+	}
+
+	protoResp, err := p.client.ApplyResourceChange(ctx, protoReq)
+	if err != nil {
+		return nil, err
+	}
+	return applyManagedResourceChangeResponse{proto: protoResp}, nil
 }
 
 // ImportManagedResourceState implements tofuprovider.GRPCPluginProvider.
@@ -67,7 +101,32 @@ func (p *Provider) PlanManagedResourceChange(ctx context.Context, req *providero
 
 // ReadManagedResource implements tofuprovider.GRPCPluginProvider.
 func (p *Provider) ReadManagedResource(ctx context.Context, req *providerops.ReadManagedResourceRequest) (providerops.ReadManagedResourceResponse, error) {
-	panic("unimplemented")
+	currentState, err := makeDynamicValueMsgpack(req.CurrentState)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CurrentState value: %w", err)
+	}
+
+	var providerMeta *tfplugin5.DynamicValue
+	if req.ProviderMeta != providerschema.NoDynamicValue {
+		providerMeta, err = makeDynamicValueMsgpack(req.ProviderMeta)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ProviderMeta value: %w", err)
+		}
+	}
+
+	protoReq := &tfplugin5.ReadResource_Request{
+		TypeName:           req.ResourceType,
+		CurrentState:       currentState,
+		Private:            req.ProviderInternal,
+		ProviderMeta:       providerMeta,
+		ClientCapabilities: prepareClientCapabilities(req.ClientCapabilities),
+	}
+
+	protoResp, err := p.client.ReadResource(ctx, protoReq)
+	if err != nil {
+		return nil, err
+	}
+	return readManagedResourceResponse{proto: protoResp}, nil
 }
 
 // UpgradeManagedResourceState implements tofuprovider.GRPCPluginProvider.
@@ -134,4 +193,63 @@ func (p planManagedResourceChangeResponse) Deferred() providerops.Deferred {
 		return nil
 	}
 	return deferred{proto: p.proto.Deferred}
+}
+
+type applyManagedResourceChangeResponse struct {
+	proto *tfplugin5.ApplyResourceChange_Response
+	common.SealedImpl
+}
+
+// Diagnostics implements providerops.ApplyManagedResourceChangeResponse.
+func (a applyManagedResourceChangeResponse) Diagnostics() providerops.Diagnostics {
+	return diagnostics{proto: a.proto.Diagnostics}
+}
+
+// PlannedNewState implements providerops.ApplyManagedResourceChangeResponse.
+func (a applyManagedResourceChangeResponse) PlannedNewState() providerschema.DynamicValueOut {
+	if a.proto.NewState == nil {
+		return nil
+	}
+	return dynamicValue{proto: a.proto.NewState}
+}
+
+// ProviderInternal implements providerops.ApplyManagedResourceChangeResponse.
+func (a applyManagedResourceChangeResponse) ProviderInternal() []byte {
+	return a.proto.Private
+}
+
+// LegacyTypeSystem implements providerops.ApplyManagedResourceChangeResponse.
+func (a applyManagedResourceChangeResponse) LegacyTypeSystem() bool {
+	return a.proto.LegacyTypeSystem
+}
+
+type readManagedResourceResponse struct {
+	proto *tfplugin5.ReadResource_Response
+	common.SealedImpl
+}
+
+// Diagnostics implements providerops.ReadManagedResourceResponse.
+func (r readManagedResourceResponse) Diagnostics() providerops.Diagnostics {
+	return diagnostics{proto: r.proto.Diagnostics}
+}
+
+// NewState implements providerops.ReadManagedResourceResponse.
+func (r readManagedResourceResponse) NewState() providerschema.DynamicValueOut {
+	if r.proto.NewState == nil {
+		return nil
+	}
+	return dynamicValue{proto: r.proto.NewState}
+}
+
+// ProviderInternal implements providerops.ReadManagedResourceResponse.
+func (r readManagedResourceResponse) ProviderInternal() []byte {
+	return r.proto.Private
+}
+
+// Deferred implements providerops.ReadManagedResourceResponse.
+func (r readManagedResourceResponse) Deferred() providerops.Deferred {
+	if r.proto.Deferred == nil {
+		return nil
+	}
+	return deferred{proto: r.proto.Deferred}
 }
