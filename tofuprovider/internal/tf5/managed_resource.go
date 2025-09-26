@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"os"
 	"slices"
 
 	"github.com/apparentlymart/opentofu-providers/tofuprovider/grpc/tfplugin5"
 	"github.com/apparentlymart/opentofu-providers/tofuprovider/internal/common"
 	"github.com/apparentlymart/opentofu-providers/tofuprovider/providerops"
 	"github.com/apparentlymart/opentofu-providers/tofuprovider/providerschema"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // ApplyManagedResourceChange implements tofuprovider.GRPCPluginProvider.
@@ -63,6 +65,8 @@ func (p *Provider) ImportManagedResourceState(ctx context.Context, req *provider
 	if err != nil {
 		return nil, err
 	}
+
+	spew.Fdump(os.Stderr, protoResp)
 	return importManagedResourceStateResponse{proto: protoResp}, nil
 }
 

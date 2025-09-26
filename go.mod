@@ -3,6 +3,7 @@ module github.com/apparentlymart/opentofu-providers
 go 1.24
 
 require (
+	github.com/davecgh/go-spew v1.1.1
 	github.com/zclconf/go-cty v1.16.3
 	go.rpcplugin.org/rpcplugin v0.3.1
 	google.golang.org/genproto v0.0.0-20250715232539-7130f93afb79
